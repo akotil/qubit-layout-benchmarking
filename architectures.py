@@ -11,19 +11,39 @@ class Architecture(ABC):
     def get_topology(self):
            pass
 
+    @property
+    @abstractmethod
+    def name(self):
+        pass
 
-class SquareGrid(Architecture):
-    def __init__(self, system_size: int):
+
+class Grid(Architecture):
+    def __init__(self, system_size: int, m: int, n:int):
+        self.m = m
+        self.n = n
         super().__init__(system_size)
 
     def get_topology(self):
-        if not np.sqrt(self.system_size).is_integer():
+        graph = nx.grid_2d_graph(m=self.m, n=self.n)
+        graph = nx.convert_node_labels_to_integers(graph)
+        return [list(e) for e in graph.edges]
+
+    @property
+    def name(self):
+        return "grid"
+
+class SquareGrid(Grid):
+    def __init__(self, system_size: int):
+        if not np.sqrt(system_size).is_integer():
             exit("The system size {} is not valid for square grid topology.".format(self.system_size))
 
         n = int(np.sqrt(self.system_size))
-        graph = nx.grid_2d_graph(m=n, n=n)
-        graph = nx.convert_node_labels_to_integers(graph)
-        return [e for e in graph.edges]
+        super().__init__(system_size, m=n, n=n)
+
+    @Grid.name.getter
+    def name(self):
+        return "square_grid"
+
 
 class LineArchitecture(Architecture):
     def __init__(self,system_size: int):
@@ -31,7 +51,11 @@ class LineArchitecture(Architecture):
 
     def get_topology(self):
         graph = nx.path_graph(self.system_size)
-        return [e for e in graph.edges]
+        return [list(e) for e in graph.edges]
+
+    @property
+    def name(self):
+        return "line"
 
 
 class LineArchitecture3d(Architecture):
@@ -41,3 +65,7 @@ class LineArchitecture3d(Architecture):
     #TODO
     def get_topology(self):
         pass
+
+    @property
+    def name(self):
+        return "line_3d"

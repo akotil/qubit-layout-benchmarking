@@ -19,6 +19,7 @@ class Compiler:
 
         self.coupling_map = arc.coupling_map
         self.qc = get_benchmark(self.alg, "alg", self.no_qubits)
+        self.gate_counts = None
 
     def compile(self, layout_provider: InitialLayout, opt_level: int = 0):
         initial_layout = layout_provider.get_virtual_layout()
