@@ -1,29 +1,25 @@
+import copy
 import itertools
 import pickle
 from abc import abstractmethod, ABC
 import random
 
-from pathos.multiprocessing import Pool
 from typing import Optional, Union
 
 import qiskit
-from mqt.bench import get_benchmark
-from pytket._tket.circuit import UnitType, Node
 from pytket._tket.passes import PlacementPass, NaivePlacementPass, SequencePass
-from pytket._tket.predicates import ConnectivityPredicate, CompilationUnit
-from pytket.extensions.qiskit import IBMQBackend, tk_to_qiskit, qiskit_to_tk
+from pytket._tket.predicates import CompilationUnit
+from pytket.extensions.qiskit import qiskit_to_tk
 from pytket.placement import LinePlacement, GraphPlacement
 
 from qiskit.providers.fake_provider import FakeGuadalupeV2
 
 from pytket.architecture import Architecture
 from qiskit import QuantumCircuit
-from qiskit.compiler import transpile
-from qiskit.converters import circuit_to_dag
-from qiskit.transpiler.passes import RemoveBarriers
-from tqdm import tqdm
+from qiskit.transpiler.passes import TrivialLayout
 
 import architectures
+import utils
 
 
 class InitialLayout(ABC):
@@ -33,14 +29,15 @@ class InitialLayout(ABC):
 
         :param no_virt_qubits: The number of virtual qubits in the quantum circuit.
         :param no_phys_qubits: The number of physical qubits in the QPU.
+        :param name: Unique name of the layout method.
         """
 
         self.no_virt_qubits = no_virt_qubits
         self.no_phys_qubits = no_phys_qubits
-        self.name = name
         assert self.no_phys_qubits >= self.no_virt_qubits, "The size of the architecture cannot be smaller than" \
                                                            " the circuit size."
 
+        self.name = name
         self.virtual_layout = None
         self.physical_layout = None
 
@@ -51,6 +48,7 @@ class InitialLayout(ABC):
     @abstractmethod
     def get_virtual_layout(self):
         pass
+
 
     def save(self, qc_name: str, arc_name: str):
         filename = "layout_bins/{}_{}_{}_{}.pickle".format(self.name, self.no_phys_qubits, qc_name, arc_name)
@@ -67,10 +65,10 @@ class InitialLayout(ABC):
             print("File {} does not exist. Performing layout search from start.".format(filename))
             return None
 
+class LayoutByExhaustiveSearch(InitialLayout):
 
-class BestLayout(InitialLayout):
-
-    def __init__(self, no_virt_qubits: int, no_phys_qubits: int,  backend: architectures.Architecture, qc: QuantumCircuit):
+    def __init__(self, no_virt_qubits: int, no_phys_qubits: int, backend: architectures.Architecture,
+                 qc: QuantumCircuit, method):
         '''
         This layout class is responsible for finding the best layout in terms of swap count by exhaustive search.
 
@@ -79,44 +77,73 @@ class BestLayout(InitialLayout):
         :param routing_method: The routing method used to obtain swap gates.
         '''
 
-        super().__init__(no_virt_qubits, no_phys_qubits, "best_layout")
+        super().__init__(no_virt_qubits, no_phys_qubits, method)
         self.v2p: dict[int, int] = None  # TODO: This should be in super class
         self.p2v: dict[int, Optional[int]] = None
         self.qc = qc
         self.backend = backend
         self.coupling = backend.coupling_map
-        self.virtual_layout = None
+
+        self.result_dict = None
+        self.worst_layout = None
+        self.best_layout = None
+        self.seed = None
+
 
     def get_physical_layout(self):
         pass
 
     def get_virtual_layout(self):
-        if self.virtual_layout is not None:
-            return self.virtual_layout
+        if self.best_layout is not None and self.worst_layout is not None and self.seed is None:
+            return self.best_layout, self.worst_layout
 
-        pickle_data = self.load_from_pickle(self.qc.name, self.backend)
+        pickle_data = self.load_from_pickle(self.qc.name, self.backend.name)
         if pickle_data is not None:
-            return pickle_data
+            best_perm, worst_perm = utils.find_layout_bounds(pickle_data)
+            self.best_layout = best_perm
+            self.worst_layout = worst_perm
+            return self.best_layout, self.worst_layout
 
         perms = list(itertools.permutations(list(range(self.no_phys_qubits))))
-        def multi_run_wrapper(args):
-            return trans(*args)
+        result_dict = utils.get_results_dict(perms, self.qc, self.coupling, self.seed)
+        self.result_dict = result_dict
 
-        def trans(*x):
-            r = transpile(self.qc, coupling_map=self.coupling, initial_layout=x, optimization_level=0).count_ops()["swap"]
-            return r
+        best_perm, worst_perm = utils.find_layout_bounds(self.result_dict)
+        self.best_layout = best_perm
+        self.worst_layout = worst_perm
+        self.save(self.qc.name, "_" + str(self.seed) + "_grid")
+        return self.best_layout, self.worst_layout
 
-        results = []
-        pool = Pool(processes=8)
-        result_dict = {}
-        for idx, result in enumerate(tqdm(pool.imap(multi_run_wrapper, perms), total=len(perms), position=0,leave=True,
-                           desc="Compiling circuits", bar_format="{l_bar}{bar} [ time left: {remaining} ]",
-                            colour="blue")):
-            results.append(result)
-            result_dict[perms[idx]] = result
 
-        return result_dict
 
+class BestLayout(LayoutByExhaustiveSearch):
+
+    def __init__(self, no_virt_qubits: int, no_phys_qubits: int, backend: architectures.Architecture,
+                 qc: QuantumCircuit):
+        super().__init__(no_virt_qubits, no_phys_qubits, backend, qc, "BestLayout")
+
+
+    def get_physical_layout(self):
+        pass
+
+    def get_virtual_layout(self):
+        self.get_virtual_layout()
+        return self.best_layout
+
+
+class WorstLayout(LayoutByExhaustiveSearch):
+    def __init__(self, no_virt_qubits: int, no_phys_qubits: int, backend: architectures.Architecture,
+                 qc: QuantumCircuit):
+        super().__init__(no_virt_qubits, no_phys_qubits, backend, qc, "BestLayout")
+        self.backend = backend
+        self.qc = qc
+
+    def get_physical_layout(self):
+        pass
+
+    def get_virtual_layout(self):
+        self.get_virtual_layout()
+        return self.worst_layout
 
 
 ######################## Random Initial Layout ########################
@@ -128,9 +155,10 @@ class RandomInitialLayout(InitialLayout):
         Randomization can be fixed by a seed per initialization.
         """
         self.seed = seed
-        self.v2p: dict[int, int] = None #TODO: This should be in super class
+        self.v2p: dict[int, int] = None  # TODO: This should be in super class
         self.p2v: dict[int, Optional[int]] = None
         super().__init__(no_virt_qubits, no_phys_qubits, "random")
+
 
     def get_physical_layout(self) -> list[Optional[int]]:
         """
@@ -182,11 +210,14 @@ class RandomInitialLayout(InitialLayout):
         assert len(permutation) == self.no_virt_qubits
         raise NotImplementedError
 
+
 ######################## Tket's Initial Layouts ########################
 
 class TketPlacementLayout(InitialLayout):
-    def __init__(self, no_virt_qubits: int, no_phys_qubits: int, method :str, backend: Union[qiskit.providers.BackendV2, Architecture] = None,
+    def __init__(self, no_virt_qubits: int, no_phys_qubits: int, method: str,
+                 backend: Union[qiskit.providers.BackendV2, Architecture] = None,
                  qc: QuantumCircuit = None):
+        super().__init__(no_virt_qubits, no_phys_qubits, method)
         """
         TketPlacementLayout is an abstract class for Tket-specific placements.
         """
@@ -194,13 +225,15 @@ class TketPlacementLayout(InitialLayout):
         self.p2v: dict[int, Optional[int]] = None
         self.backend = backend
         self.qc = qc
+        self.tket_qc = qiskit_to_tk(self.qc)
+
         self.v2p: dict[int, int] = None
         self.p2v: dict[int, Optional[int]] = None
         self.method = method
         self.arc = Architecture(
-            connections=self.backend.coupling_map)  # TODO: Generalize to other arcs too. When using qiskit,
+            connections=self.backend.coupling_map)
+        # TODO: Generalize to other arcs too. When using qiskit,
         # this becomes list(self.backend.coupling_map.get_edges()). The class should only receive couplings.
-        super().__init__(no_virt_qubits, no_phys_qubits, self.method)
 
     def get_physical_layout(self) -> list[Optional[int]]:
         pass
@@ -210,7 +243,6 @@ class TketPlacementLayout(InitialLayout):
         if self.virtual_layout is not None:
             return self.virtual_layout
 
-        tket_qc = qiskit_to_tk(self.qc)
         if self.method == "LinePlacement":
             initial_placement_pass = PlacementPass(LinePlacement(self.arc))
         elif self.method == "GraphPlacement":
@@ -219,7 +251,8 @@ class TketPlacementLayout(InitialLayout):
             exit("{} is not a valid placement method for Tket.".format(self.method))
 
         naive_placement_pass = NaivePlacementPass(self.arc)
-        cu = CompilationUnit(tket_qc)
+
+        cu = CompilationUnit(copy.deepcopy(self.tket_qc))
         # TODO: tket routing placement + dynamic routing vs. placement + naive + routing
         # Wenn der Unterschied recht groß ist, dann backtracking sonst lassen
         # TODO: Optimierung ausschalten
@@ -233,8 +266,11 @@ class TketPlacementLayout(InitialLayout):
             virtual_layout.append(node.index[0])
         self.virtual_layout = virtual_layout
         return virtual_layout
+
+
 class LinePlacementLayout(TketPlacementLayout):
-    def __init__(self, no_virt_qubits: int, no_phys_qubits: int, backend: Union[qiskit.providers.BackendV2, Architecture] = None,
+    def __init__(self, no_virt_qubits: int, no_phys_qubits: int,
+                 backend: Union[qiskit.providers.BackendV2, Architecture] = None,
                  qc: QuantumCircuit = None):
         """
         LinePlacementLayout delegates to PyTket's LinePlacement.
@@ -243,14 +279,24 @@ class LinePlacementLayout(TketPlacementLayout):
 
 
 class GraphPlacementLayout(TketPlacementLayout):
-    def __init__(self, no_virt_qubits: int, no_phys_qubits: int, backend: Union[qiskit.providers.BackendV2, Architecture],
+    def __init__(self, no_virt_qubits: int, no_phys_qubits: int,
+                 backend: Union[qiskit.providers.BackendV2, Architecture],
                  qc: QuantumCircuit = None):
         """
         GraphPlacementLayout delegates to PyTket's GraphPlacement.
         """
         super().__init__(no_virt_qubits, no_phys_qubits, "GraphPlacement", backend, qc)
 
-
 ######################## Qiskit's Initial Layouts ########################
 
+class QiskitTrivialLayout(InitialLayout):
+    def __init__(self, no_virt_qubits: int, no_phys_qubits: int,
+                 backend: Union[qiskit.providers.BackendV2, Architecture] = None):
+        super().__init__(no_virt_qubits, no_phys_qubits, "TrivialLayout")
+        self.backend = backend
 
+    def get_physical_layout(self) -> list[Optional[int]]:
+        return TrivialLayout(self.backend.coupling_map).coupling_map # TODO: What format does this have?
+
+    def get_virtual_layout(self) -> list[int]:
+        pass
