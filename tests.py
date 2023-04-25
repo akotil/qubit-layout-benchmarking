@@ -1,13 +1,17 @@
 import pickle
 from typing import List, Dict
 
+import pandas as pd
 from matplotlib import pyplot as plt
 from mqt.bench import get_benchmark
 
 import architectures
 from compiler import Compiler
 from mappings import LinePlacementLayout, GraphPlacementLayout, BestLayout, LayoutByExhaustiveSearch, WorstLayout, \
-    InitialLayout
+    InitialLayout, QiskitTrivialLayout, QiskitSabreLayout
+
+import os.path
+
 
 
 def calculate_results(layouts, algos, arcs:List[architectures.Architecture], max_seed):
@@ -22,15 +26,19 @@ def calculate_results(layouts, algos, arcs:List[architectures.Architecture], max
                     # Route the circuit and get results
                     if isinstance(l, LayoutByExhaustiveSearch):
                         l.seed = s
-                    print("Compiling backend {} with layout {} and system size {}.".format(arc.name, l.name,
-                                                                                           arc.system_size))
-                    qc_transpiled = compiler.compile(l, seed=s)
                     filename = "transpiled_qc_bins/{}_{}_{}_{}_{}.pickle".format(l.name, arc.system_size, circ.name, arc.name,
                                                                                  s)
-                    pickle.dump(qc_transpiled, open(filename, "wb"))
+                    if not os.path.isfile(filename):
+                        print("Compiling backend {} with layout {} and system size {} for seed {}.".format(arc.name, l.name,
+                                                                                               arc.system_size, s))
+                        qc_transpiled = compiler.compile(l, seed=s)
+                        pickle.dump(qc_transpiled, open(filename, "wb"))
+                    else:
+                        print("Using already compiled circuit for backend {} with layout {} and system size {} for seed {}."
+                              .format(arc.name, l.name, arc.system_size, s))
 
 
-def load_and_plot_results(layouts: List[str], algos: List[str], arcs:List[architectures.Architecture], max_seed: int):
+def load_and_plot_results(layouts: List[str], algos: List[str], arcs:List[architectures.Architecture], benchmark_measure:str, max_seed: int):
     result_dict = {}
     for alg in algos:
         for lay in layouts:
@@ -57,33 +65,46 @@ def load_and_plot_results(layouts: List[str], algos: List[str], arcs:List[archit
                     if swap_count > worst_of_seeds:
                         worst_of_seeds = swap_count
                 if lay == "WorstLayout":
-                    result_dict[lay][alg][arc.name] = worst_of_seeds
+                    result_dict[lay][alg][arc.system_size] = worst_of_seeds
                 else:
-                    result_dict[lay][alg][arc.name] = best_of_seeds
+                    result_dict[lay][alg][arc.system_size] = best_of_seeds
 
-    # TODO: Plot with pandas?
+    if benchmark_measure=="arc":
+        plot_dict = {}
+        for lay in layouts:
+            plot_dict[lay] = []
+            # TODO: Find a better way to sort
+            for arc in sorted(arcs, key=lambda x: x.system_size):
+                # Fix the algorithm
+                print(arc.system_size)
+                plot_dict[lay].append(result_dict[lay]["dj"][arc.system_size])
+            plt.plot([arc.system_size for arc in sorted(arcs, key=lambda x: x.system_size)], plot_dict[lay],
+                     label=lay, marker="o")
+
+        plt.grid()
+        plt.legend()
+        plt.title(algos)
+        plt.show()
 
 arc_grid_structure = {4:(2,2), 6:(2,3), 8:(2,4), 9:(3,3)}
 architectures = [architectures.Grid(4, 2, 2), architectures.Grid(6, 2, 3), architectures.Grid(8, 2, 4),
-                 architectures.Grid(9, 3, 3), architectures.HeavyHexArchitecture(7),
-                 architectures.HeavyHexArchitecture(16), architectures.HeavyHexArchitecture(27)]
-# TODO: For Sabre, you need to route and see
-layouts = {"LinePlacement": LinePlacementLayout, "GraphPlacement": GraphPlacementLayout, "BestLayout": BestLayout,
-           "WorstLayout": WorstLayout}
-algorithms = ["dj"]
+                 architectures.Grid(9, 3, 3), architectures.Grid(12, 3, 4), architectures.Grid(20, 4, 5),
+                 architectures.HeavyHexArchitecture(7),
+                 architectures.HeavyHexArchitecture(16),
+                 architectures.HeavyHexArchitecture(27),
+                 architectures.Grid(25, 5, 5), architectures.Grid(30, 6, 5), architectures.Grid(36, 6, 6),
+                 architectures.Grid(42, 6, 7), architectures.Grid(49, 7, 7)
+                 ]
+
+layouts = {"LinePlacement": LinePlacementLayout, "GraphPlacement": GraphPlacementLayout,
+           #"BestLayout": BestLayout,
+           #"WorstLayout": WorstLayout,
+           "TrivialLayout": QiskitTrivialLayout,
+           "SabreLayout": QiskitSabreLayout}
+algorithms = ["grover-noancilla"]
 
 calculate_results(layouts.values(), algorithms, architectures, max_seed=10)
-load_and_plot_results(layouts.keys(), algorithms, architectures, max_seed=10)
-
-'''
-x_ticks = arc_grid_structure.keys()
-for k in r.keys():
-    plt.plot(x_ticks, r[k], label=k, marker="o")
-
-plt.xticks(list(x_ticks))
-plt.legend()
-plt.show()
-'''
+load_and_plot_results(layouts.keys(), algorithms, architectures, benchmark_measure="arc", max_seed=10)
 
 # TODO: Theoretical background of line and graph placement
 # TODO: Leave out one of qiskit's graphplacement and tket graphplacement

@@ -49,22 +49,6 @@ class InitialLayout(ABC):
     def get_virtual_layout(self):
         pass
 
-
-    def save(self, qc_name: str, arc_name: str):
-        filename = "layout_bins/{}_{}_{}_{}.pickle".format(self.name, self.no_phys_qubits, qc_name, arc_name)
-        with open(filename, 'wb') as handle:
-            pickle.dump(self.virtual_layout, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-    def load_from_pickle(self, qc_name: str, arc_name: str):
-        filename = "layout_bins/{}_{}_{}_{}.pickle".format(self.name, self.no_phys_qubits, qc_name, arc_name)
-        try:
-            with open(filename, 'rb') as handle:
-                result_dict = pickle.load(handle)
-                return result_dict
-        except:
-            print("File {} does not exist. Performing layout search from start.".format(filename))
-            return None
-
 class LayoutByExhaustiveSearch(InitialLayout):
 
     def __init__(self, no_virt_qubits: int, no_phys_qubits: int, backend: architectures.Architecture,
@@ -97,13 +81,14 @@ class LayoutByExhaustiveSearch(InitialLayout):
         if self.best_layout is not None and self.worst_layout is not None and self.seed is None:
             return self.best_layout, self.worst_layout
 
-        pickle_data = self.load_from_pickle(self.qc.name, self.backend.name)
+        pickle_data = self.load_from_pickle(self.qc.name, "_" + str(self.seed) + "_" + self.backend.name)
         if pickle_data is not None:
             best_perm, worst_perm = utils.find_layout_bounds(pickle_data)
             self.best_layout = best_perm
             self.worst_layout = worst_perm
             return self.best_layout, self.worst_layout
 
+        print("pickle data was none")
         perms = list(itertools.permutations(list(range(self.no_phys_qubits))))
         result_dict = utils.get_results_dict(perms, self.qc, self.coupling, self.seed)
         self.result_dict = result_dict
@@ -111,9 +96,24 @@ class LayoutByExhaustiveSearch(InitialLayout):
         best_perm, worst_perm = utils.find_layout_bounds(self.result_dict)
         self.best_layout = best_perm
         self.worst_layout = worst_perm
-        self.save(self.qc.name, "_" + str(self.seed) + "_grid")
+        self.save(result_dict, self.qc.name, "_" + str(self.seed) + "_" + self.backend.name)
         return self.best_layout, self.worst_layout
 
+
+    def save(self, result_dict, qc_name: str, arc_name: str):
+        filename = "layout_bins/{}_{}_{}_{}.pickle".format("ExhaustiveSearch", self.no_phys_qubits, qc_name, arc_name)
+        with open(filename, 'wb') as handle:
+            pickle.dump(result_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def load_from_pickle(self, qc_name: str, arc_name: str):
+        filename = "layout_bins/{}_{}_{}_{}.pickle".format("ExhaustiveSearch", self.no_phys_qubits, qc_name, arc_name)
+        try:
+            with open(filename, 'rb') as handle:
+                result_dict = pickle.load(handle)
+                return result_dict
+        except:
+            print("File {} does not exist. Performing layout search from start.".format(filename))
+            return None
 
 
 class BestLayout(LayoutByExhaustiveSearch):
@@ -127,14 +127,14 @@ class BestLayout(LayoutByExhaustiveSearch):
         pass
 
     def get_virtual_layout(self):
-        self.get_virtual_layout()
+        super().get_virtual_layout()
         return self.best_layout
 
 
 class WorstLayout(LayoutByExhaustiveSearch):
     def __init__(self, no_virt_qubits: int, no_phys_qubits: int, backend: architectures.Architecture,
                  qc: QuantumCircuit):
-        super().__init__(no_virt_qubits, no_phys_qubits, backend, qc, "BestLayout")
+        super().__init__(no_virt_qubits, no_phys_qubits, backend, qc, "WorstLayout")
         self.backend = backend
         self.qc = qc
 
@@ -142,7 +142,7 @@ class WorstLayout(LayoutByExhaustiveSearch):
         pass
 
     def get_virtual_layout(self):
-        self.get_virtual_layout()
+        super().get_virtual_layout()
         return self.worst_layout
 
 
@@ -291,12 +291,27 @@ class GraphPlacementLayout(TketPlacementLayout):
 
 class QiskitTrivialLayout(InitialLayout):
     def __init__(self, no_virt_qubits: int, no_phys_qubits: int,
-                 backend: Union[qiskit.providers.BackendV2, Architecture] = None):
+                 backend: Union[qiskit.providers.BackendV2, Architecture] = None, qc: QuantumCircuit = None):
         super().__init__(no_virt_qubits, no_phys_qubits, "TrivialLayout")
         self.backend = backend
+        self.qc = qc
 
     def get_physical_layout(self) -> list[Optional[int]]:
         return TrivialLayout(self.backend.coupling_map).coupling_map # TODO: What format does this have?
+
+    def get_virtual_layout(self) -> list[int]:
+        pass
+
+
+class QiskitSabreLayout(InitialLayout):
+    def __init__(self, no_virt_qubits: int, no_phys_qubits: int,
+                 backend: Union[qiskit.providers.BackendV2, Architecture] = None, qc: QuantumCircuit = None):
+        super().__init__(no_virt_qubits, no_phys_qubits, "SabreLayout")
+        self.backend = backend
+        self.qc = qc
+
+    def get_physical_layout(self) -> list[Optional[int]]:
+        pass
 
     def get_virtual_layout(self) -> list[int]:
         pass

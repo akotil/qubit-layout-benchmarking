@@ -17,6 +17,7 @@ class Architecture(ABC):
 
 class Grid(Architecture):
     def __init__(self, system_size: int, m: int, n:int):
+        assert (system_size == m * n, "System size does not match the defined grid structure.")
         self.m = m
         self.n = n
         super().__init__(system_size, "grid")
@@ -60,5 +61,7 @@ class HeavyHexArchitecture(Architecture):
         super().__init__(system_size, "heavyhex")
 
     def get_topology(self):
-        available_systems = {7: FakeLagosV2, 16:FakeGuadalupeV2, 27:FakeMumbaiV2}
-        return available_systems[self.system_size].coupling_map
+        available_systems = {7: FakeLagosV2(), 16:FakeGuadalupeV2(), 27:FakeMumbaiV2()}
+        coupling_list = list(available_systems[self.system_size].coupling_map.get_edges())
+        coupling_list = [list(t) for t in coupling_list]
+        return coupling_list

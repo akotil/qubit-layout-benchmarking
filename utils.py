@@ -1,3 +1,4 @@
+from joblib import Parallel, delayed
 from qiskit import transpile
 from tqdm import tqdm
 
@@ -5,15 +6,16 @@ from tqdm import tqdm
 def get_results_dict(perms, qc, coupling, seed):
 
     inputs = [(perm, qc, coupling) for perm in perms]
-    result_dict = {}
 
-    for inp in tqdm(inputs, total=len(inputs),
-                           desc="Compiling circuits", bar_format="{l_bar}{bar} [ time left: {remaining} ]",
-                            colour="blue"):
+    def func(inp):
         perm, qc, coupling = inp
         r = transpile(qc, coupling_map=coupling, initial_layout=perm, optimization_level=0,
                       routing_method="sabre", seed_transpiler=seed).count_ops()["swap"]
-        result_dict[perm] = r
+        return r
+
+    parallel = Parallel(n_jobs=8)
+    outputs = parallel(delayed(func)(inp) for inp in tqdm(inputs))
+    result_dict = dict(zip([inp[0] for inp in inputs], outputs))
 
     return result_dict
 

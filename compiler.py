@@ -6,7 +6,7 @@ from qiskit.providers.fake_provider import FakeGuadalupeV2
 import qiskit
 
 from architectures import Architecture
-from mappings import InitialLayout
+from mappings import InitialLayout, QiskitSabreLayout
 
 
 class Compiler:
@@ -19,14 +19,16 @@ class Compiler:
         self.gate_counts = None
 
     def compile(self, layout_provider: Union[InitialLayout, tuple], seed:int = None, opt_level: int = 0):
+        layout_method = None
         if isinstance(layout_provider, InitialLayout):
             initial_layout = layout_provider.get_virtual_layout()
+        elif isinstance(layout_provider, QiskitSabreLayout):
+            initial_layout = None
+            layout_method = "sabre"
         else:
             initial_layout = layout_provider
 
-        #print("Compiling started for layout={} and system size={}".format(layout_provider.name, self.no_qubits))
-
-        qc_transpiled = transpile(self.circ, initial_layout=initial_layout,
+        qc_transpiled = transpile(self.circ, initial_layout=initial_layout, layout_method = layout_method,
                                   coupling_map=self.coupling_map, optimization_level=opt_level, routing_method="sabre", seed_transpiler=seed)
         self.gate_counts = qc_transpiled.count_ops()
         return qc_transpiled
