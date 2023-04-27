@@ -88,7 +88,6 @@ class LayoutByExhaustiveSearch(InitialLayout):
             self.worst_layout = worst_perm
             return self.best_layout, self.worst_layout
 
-        print("pickle data was none")
         perms = list(itertools.permutations(list(range(self.no_phys_qubits))))
         result_dict = utils.get_results_dict(perms, self.qc, self.coupling, self.seed)
         self.result_dict = result_dict
@@ -252,7 +251,7 @@ class TketPlacementLayout(InitialLayout):
 
         naive_placement_pass = NaivePlacementPass(self.arc)
 
-        cu = CompilationUnit(copy.deepcopy(self.tket_qc))
+        cu = CompilationUnit(self.tket_qc)
         # TODO: tket routing placement + dynamic routing vs. placement + naive + routing
         # Wenn der Unterschied recht groß ist, dann backtracking sonst lassen
         # TODO: Optimierung ausschalten

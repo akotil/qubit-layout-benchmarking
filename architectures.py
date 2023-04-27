@@ -39,7 +39,7 @@ class SquareGrid(Grid):
         if not np.sqrt(system_size).is_integer():
             exit("The system size {} is not valid for square grid topology.".format(self.system_size))
 
-        n = int(np.sqrt(self.system_size))
+        n = int(np.sqrt(system_size))
         super().__init__(system_size, m=n, n=n)
 
 
