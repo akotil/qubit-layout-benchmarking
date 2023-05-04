@@ -41,6 +41,7 @@ def get_qaoa_circuit(num_qubits: int):
     return qc
 
 def get_vqe_circuit(num_qubits: int):
+    # TODO: Look at the circuit again
     ansatz = RealAmplitudes(num_qubits, reps=2)
     ansatz.bind_parameters(np.random.uniform(low=-2, high=2, size=(ansatz.num_parameters,)))
     ansatz.name = "vqe"
