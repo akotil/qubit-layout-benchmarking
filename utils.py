@@ -64,5 +64,4 @@ def find_layout_bounds(result_dict: dict):
             max = result_dict[p]
             worst_perm = p
 
-    # TODO: Figure out experimentally a reasonable number of runs
     return best_perm, worst_perm

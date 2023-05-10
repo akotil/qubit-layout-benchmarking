@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 import networkx as nx
+from matplotlib import pyplot as plt
 from qiskit.providers.fake_provider import FakeMumbaiV2, FakeLagosV2, FakeGuadalupeV2, FakeWashingtonV2, FakeQuitoV2
 
 
@@ -54,7 +55,7 @@ class LineArchitecture(Architecture):
 
 class HeavyHexArchitecture(Architecture):
     def __init__(self, system_size: int):
-        available_system_sizes = {5, 7, 16, 27, 65, 127}
+        available_system_sizes = {5, 7, 16, 27, 65, 127, 433}
         if system_size not in available_system_sizes:
             exit("System size {} not available in IBM's heavyhex devices. Available system sizes are: {}".format(
                 system_size, available_system_sizes))
@@ -63,11 +64,67 @@ class HeavyHexArchitecture(Architecture):
     def get_topology(self):
         if self.system_size == 65:
             return self.get_hummingbird_topology()
+        elif self.system_size == 433:
+            return self.get_osprey_topology()
+
         available_systems = {5: FakeQuitoV2(), 7: FakeLagosV2(), 16: FakeGuadalupeV2(), 27: FakeMumbaiV2(),
                              127: FakeWashingtonV2()}
         coupling_list = list(available_systems[self.system_size].coupling_map.get_edges())
         coupling_list = [list(t) for t in coupling_list]
         return coupling_list
+
+    def get_osprey_topology(self):
+        coupling_list = []
+        prev_path = None
+        intermediate_nodes = list(range(433 -12 * 7, 433))
+        cursor = 0
+        for k in range(12):
+            if prev_path is None:
+                prev_path = nx.path_graph(27)
+                coupling_list.extend([list(e) for e in prev_path.edges])
+
+            curr_path = nx.path_graph(27)
+            curr_path = nx.relabel_nodes(curr_path, lambda x: x + (k+1)*27)
+            coupling_list.extend([list(e) for e in curr_path.edges])
+
+            curr_path_nodes = list(curr_path.nodes)
+            prev_path_nodes = list(prev_path.nodes)
+
+            if k % 2 == 0:
+                connection_range = (0, 25, 4)
+            else:
+                connection_range = (2, 27, 6)
+
+            for m in range(*connection_range):
+                intermediate_node = intermediate_nodes[cursor]
+                coupling_list.append([curr_path_nodes[m], intermediate_node])
+                coupling_list.append([intermediate_node, curr_path_nodes[m]])
+                coupling_list.append([prev_path_nodes[m], intermediate_node])
+                coupling_list.append([intermediate_node, prev_path_nodes[m]])
+                cursor += 1
+            prev_path = curr_path
+
+        # remove two nodes
+        coupling_list.remove([25,26])
+        coupling_list.remove([12*27, 12*27+1])
+
+        # make topology symmetric
+        symmetric_edges = []
+        for e in coupling_list:
+            e1, e2 = e
+            symmetric_edges.append([e2, e1])
+        coupling_list.extend(symmetric_edges)
+
+        return coupling_list
+
+    def _get_row(self, row_idx: int, m: int, n: int):
+        row = []
+        # todo: is it symmetric?
+        # 12 * 7 intermediate nodes
+        # 433 -12 * 7 path nodes
+        path = nx.path_graph(27)
+
+
 
     def get_hummingbird_topology(self):
         coupling_list = []

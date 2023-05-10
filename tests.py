@@ -1,6 +1,9 @@
 import pickle
+import statistics
 from typing import List
 
+import seaborn as sns
+import numpy as np
 from matplotlib import pyplot as plt
 from mqt.bench import get_benchmark
 
@@ -45,14 +48,14 @@ def calculate_results(layouts, alg, arcs:List[architectures.Architecture], max_s
                           .format(arc.name, l.name, arc.system_size, s))
 
 
-def load_and_plot_results(layouts: List[str], alg: str, arcs:List[architectures.Architecture], benchmark_entity:str, max_seed: int):
+def load_results(layouts: List[str], alg: str, arcs:List[architectures.Architecture], max_seed: int):
     result_dict = {}
     for lay in layouts:
         result_dict[lay] = dict()
         result_dict[lay][alg] = dict()
         for arc in arcs:
-            best_of_seeds = float("inf")
-            worst_of_seeds = float("-inf")
+            swap_results = []
+            depth_results = []
             for s in range(max_seed):
                 filename = "transpiled_qc_bins/{}_{}_{}_{}_{}.pickle".format(lay, arc.system_size, alg,
                                                                          arc.name, s)
@@ -64,41 +67,63 @@ def load_and_plot_results(layouts: List[str], alg: str, arcs:List[architectures.
                 except:
                     print("File {} does not exist!".format(filename))
 
-                assert benchmark_entity in ["swap", "depth"]
-                if benchmark_entity == "swap" and "swap" in transpiled_qc.count_ops():
-                    count = transpiled_qc.count_ops()["swap"]
-                elif benchmark_entity == "depth":
-                    count = transpiled_qc.depth()
+                depth_count = transpiled_qc.depth()
+                if "swap" in transpiled_qc.count_ops():
+                    swap_count = transpiled_qc.count_ops()["swap"]
                 else:
-                    print("Benchmark entity {} doesn't exist for {}_{}_{}_{}_{}"
-                          .format(benchmark_entity,lay, arc.system_size, alg, arc.name,s))
-                    count = 0
+                    swap_count = 0
 
-                if count < best_of_seeds:
-                    best_of_seeds = count
-                if count > worst_of_seeds:
-                    worst_of_seeds = count
+                swap_results.append(swap_count)
+                depth_results.append(depth_count)
 
             if lay == "WorstLayout":
-                result_dict[lay][alg][arc.system_size] = worst_of_seeds
+                result_dict[lay][alg][arc.system_size] = {"swap": max(swap_results), "depth": max(depth_results)}
+
+            elif lay == "BestLayout":
+                result_dict[lay][alg][arc.system_size] = {"swap": min(swap_results), "depth": min(depth_results)}
             else:
-                result_dict[lay][alg][arc.system_size] = best_of_seeds
+                result_dict[lay][alg][arc.system_size] = {"swap": swap_results, "depth": depth_results}
+
+    return result_dict
+
+
+def plot_results(result_dict: dict, layouts: List[str], arcs: List[architectures.Architecture], benchmark_entity: str, alg:str):
 
     plot_dict = {}
     for lay in layouts:
         plot_dict[lay] = []
+        x_arr = [arc.system_size for arc in sorted(arcs, key=lambda x: x.system_size)]
         # TODO: Find a better way to sort
         for arc in sorted(arcs, key=lambda x: x.system_size):
-            # Fix the algorithm
-            plot_dict[lay].append(result_dict[lay][alg][arc.system_size])
-        plt.plot([arc.system_size for arc in sorted(arcs, key=lambda x: x.system_size)], plot_dict[lay],
-                 label=lay, marker="o")
+            #plot_dict[lay].append(result_dict[lay][alg][arc.system_size])
+            r = result_dict[lay][alg][arc.system_size][benchmark_entity]
+            min_val = min(r)
+            max_val = max(r)
+            avg_val = statistics.fmean(r)
+            r_tuple = (min_val, avg_val, max_val)
+            plot_dict[lay].append(r_tuple)
+
+        # plot the average values
+        plt.plot(x_arr, [t[1] for t in plot_dict[lay]], label=lay, marker="o")
+
+        # plot the deviation ranges
+        if lay not in ["WorstLayout", "BestLayout"]:
+            lower = [t[0] for t in plot_dict[lay]]
+            upper = [t[2] for t in plot_dict[lay]]
+            middle = [t[1] for t in plot_dict[lay]]
+            y_l = np.array(middle) - np.array(lower)
+            y_u = np.array(upper) - np.array(middle)
+            errors = [y_l, y_u]
+            plt.errorbar(x_arr, y= middle, yerr=errors, alpha=0.4)
 
     plt.grid()
     plt.legend()
     title = "{} comparison for {}".format(benchmark_entity, alg)
     plt.title(title)
+    plt.savefig("plots/{}_{}.png".format(alg, arcs[0].name))
     plt.show()
+
+
 
 def get_heavyhex_arcs(system_sizes : List[int]):
     arcs = []
@@ -106,15 +131,13 @@ def get_heavyhex_arcs(system_sizes : List[int]):
         arcs.append(architectures.HeavyHexArchitecture(size))
     return arcs
 
-def get_rigetti_arcs(max_m: int, max_n:int, single=False):
-    if single:
-        return [architectures.RigettiArchitecture(system_size=max_n*max_n*8, m=max_m, n=max_n)]
-
+def get_rigetti_arcs():
+    sizes = [(1,1), (1,2), (1,5), (1,6), (2,5), (2,6), (3,5),(3,6), (4,5),(4,6), (5,5), (5,6), (6,6), (7,6), (8,6), (9,6)]
     arcs = []
-    for m in range(1, max_m + 1):
-        for n in range(3, max_n + 1):
-            system_size = m * n * 8
-            arcs.append(architectures.RigettiArchitecture(system_size=system_size, m=m, n=n))
+    for size in sizes:
+        m, n = size
+        system_size = m * n * 8
+        arcs.append(architectures.RigettiArchitecture(system_size=system_size, m=m, n=n))
     return arcs
 
 def get_square_grid_arcs(max_n:int):
@@ -126,8 +149,8 @@ def get_square_grid_arcs(max_n:int):
 if __name__ == "__main__":
     archs = []
 
-    ibm_archs = get_heavyhex_arcs([5,7,16,27,65])
-    rigetti_arcs = get_rigetti_arcs(5,5)
+    ibm_archs = get_heavyhex_arcs([5,7,16,27,65,127])
+    rigetti_arcs = get_rigetti_arcs()
     square_arcs = get_square_grid_arcs(20)
 
     archs.extend(ibm_archs)
@@ -139,14 +162,9 @@ if __name__ == "__main__":
                "SabreLayout": QiskitSabreLayout}
 
     # Set the parameters
-    algorithm = "vqe"
+    algorithm = "dj"
     max_seed = 10
     entity = "swap"
-    arcs = rigetti_arcs
     calculate_results(layouts.values(), algorithm, archs, max_seed=max_seed)
-    load_and_plot_results(layouts.keys(), algorithm, archs, benchmark_entity=entity, max_seed=max_seed)
-
-    # TODO: Theoretical background of line and graph placement
-    # TODO: Leave out one of qiskit's graphplacement and tket graphplacement
-    # TODO: Bigger simulations without best and worst
-    # Add classical runtime dimension to the plots -> find a tradeoff between 'how good the mapping is' and how fast it is
+    result_dict = load_results(layouts.keys(), algorithm, archs, max_seed=max_seed)
+    plot_results(result_dict, layouts.keys(), archs, entity, algorithm)
