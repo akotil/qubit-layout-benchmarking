@@ -215,7 +215,7 @@ class RandomInitialLayout(InitialLayout):
 class TketPlacementLayout(InitialLayout):
     def __init__(self, no_virt_qubits: int, no_phys_qubits: int, method: str,
                  backend: Union[qiskit.providers.BackendV2, Architecture] = None,
-                 qc: QuantumCircuit = None):
+                 qc: QuantumCircuit = None, **kwargs):
         super().__init__(no_virt_qubits, no_phys_qubits, method)
         """
         TketPlacementLayout is an abstract class for Tket-specific placements.
@@ -225,6 +225,7 @@ class TketPlacementLayout(InitialLayout):
         self.backend = backend
         self.qc = qc
         self.tket_qc = qiskit_to_tk(self.qc)
+        self.kwargs = kwargs
 
         self.v2p: dict[int, int] = None
         self.p2v: dict[int, Optional[int]] = None
@@ -243,18 +244,15 @@ class TketPlacementLayout(InitialLayout):
             return self.virtual_layout
 
         if self.method == "LinePlacement":
-            initial_placement_pass = PlacementPass(LinePlacement(self.arc))
+            initial_placement_pass = PlacementPass(LinePlacement(self.arc, **self.kwargs))
         elif self.method == "GraphPlacement":
-            initial_placement_pass = PlacementPass(GraphPlacement(self.arc))
+            initial_placement_pass = PlacementPass(GraphPlacement(self.arc,  **self.kwargs))
         else:
             exit("{} is not a valid placement method for Tket.".format(self.method))
 
         naive_placement_pass = NaivePlacementPass(self.arc)
 
         cu = CompilationUnit(self.tket_qc)
-        # TODO: tket routing placement + dynamic routing vs. placement + naive + routing
-        # Wenn der Unterschied recht groß ist, dann backtracking sonst lassen
-        # TODO: Optimierung ausschalten
 
         # Apply a placement method first and then initialize the unlabeled qubits with naive approach.
         seq_pass = SequencePass([initial_placement_pass, naive_placement_pass])
@@ -270,21 +268,21 @@ class TketPlacementLayout(InitialLayout):
 class LinePlacementLayout(TketPlacementLayout):
     def __init__(self, no_virt_qubits: int, no_phys_qubits: int,
                  backend: Union[qiskit.providers.BackendV2, Architecture] = None,
-                 qc: QuantumCircuit = None):
+                 qc: QuantumCircuit = None, **kwargs):
         """
         LinePlacementLayout delegates to PyTket's LinePlacement.
         """
-        super().__init__(no_virt_qubits, no_phys_qubits, "LinePlacement", backend, qc)
+        super().__init__(no_virt_qubits, no_phys_qubits, "LinePlacement", backend, qc, **kwargs)
 
 
 class GraphPlacementLayout(TketPlacementLayout):
     def __init__(self, no_virt_qubits: int, no_phys_qubits: int,
                  backend: Union[qiskit.providers.BackendV2, Architecture],
-                 qc: QuantumCircuit = None):
+                 qc: QuantumCircuit = None, **kwargs):
         """
         GraphPlacementLayout delegates to PyTket's GraphPlacement.
         """
-        super().__init__(no_virt_qubits, no_phys_qubits, "GraphPlacement", backend, qc)
+        super().__init__(no_virt_qubits, no_phys_qubits, "GraphPlacement", backend, qc, **kwargs)
 
 ######################## Qiskit's Initial Layouts ########################
 

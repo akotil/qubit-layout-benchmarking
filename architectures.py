@@ -38,7 +38,7 @@ class Grid(Architecture):
 class SquareGrid(Grid):
     def __init__(self, system_size: int):
         if not np.sqrt(system_size).is_integer():
-            exit("The system size {} is not valid for square grid topology.".format(self.system_size))
+            exit("The system size {} is not valid for square grid topology.".format(system_size))
 
         n = int(np.sqrt(system_size))
         super().__init__(system_size, m=n, n=n)
@@ -75,10 +75,11 @@ class HeavyHexArchitecture(Architecture):
 
     def get_osprey_topology(self):
         coupling_list = []
+        no_rows = 12
         prev_path = None
-        intermediate_nodes = list(range(433 -12 * 7, 433))
+        intermediate_nodes = list(range(433 -no_rows * 7, 433))
         cursor = 0
-        for k in range(12):
+        for k in range(no_rows):
             if prev_path is None:
                 prev_path = nx.path_graph(27)
                 coupling_list.extend([list(e) for e in prev_path.edges])
@@ -93,10 +94,11 @@ class HeavyHexArchitecture(Architecture):
             if k % 2 == 0:
                 connection_range = (0, 25, 4)
             else:
-                connection_range = (2, 27, 6)
+                connection_range = (2, 27, 4)
 
             for m in range(*connection_range):
                 intermediate_node = intermediate_nodes[cursor]
+                print(intermediate_node)
                 coupling_list.append([curr_path_nodes[m], intermediate_node])
                 coupling_list.append([intermediate_node, curr_path_nodes[m]])
                 coupling_list.append([prev_path_nodes[m], intermediate_node])
@@ -104,9 +106,18 @@ class HeavyHexArchitecture(Architecture):
                 cursor += 1
             prev_path = curr_path
 
+            if k == 1 or k ==2:
+                G = nx.Graph()
+                G.add_edges_from(coupling_list)
+                #pos = nx.planar_layout(G)
+                pos = nx.nx_agraph.graphviz_layout(G)
+                nx.draw(G, pos=pos)
+                plt.show()
+
+
         # remove two nodes
         coupling_list.remove([25,26])
-        coupling_list.remove([12*27, 12*27+1])
+        coupling_list.remove([no_rows*27, no_rows*27+1])
 
         # make topology symmetric
         symmetric_edges = []

@@ -88,7 +88,9 @@ def load_results(layouts: List[str], alg: str, arcs:List[architectures.Architect
 
 
 def plot_results(result_dict: dict, layouts: List[str], arcs: List[architectures.Architecture], benchmark_entity: str, alg:str):
-
+    styling = {"color":{"LinePlacement":"darkkhaki", "GraphPlacement":"palevioletred", "TrivialLayout": "cornflowerblue", "SabreLayout":"lightseagreen"},
+               "linestyle": {"LinePlacement":"dashed", "GraphPlacement":"dashdot", "TrivialLayout": "-", "SabreLayout":"dotted"}
+    }
     plot_dict = {}
     for lay in layouts:
         plot_dict[lay] = []
@@ -104,7 +106,7 @@ def plot_results(result_dict: dict, layouts: List[str], arcs: List[architectures
             plot_dict[lay].append(r_tuple)
 
         # plot the average values
-        plt.plot(x_arr, [t[1] for t in plot_dict[lay]], label=lay, marker="o")
+        plt.scatter(x_arr, [t[1] for t in plot_dict[lay]], marker="o", color=styling["color"][lay])
 
         # plot the deviation ranges
         if lay not in ["WorstLayout", "BestLayout"]:
@@ -114,13 +116,13 @@ def plot_results(result_dict: dict, layouts: List[str], arcs: List[architectures
             y_l = np.array(middle) - np.array(lower)
             y_u = np.array(upper) - np.array(middle)
             errors = [y_l, y_u]
-            plt.errorbar(x_arr, y= middle, yerr=errors, alpha=0.4)
+            plt.errorbar(x_arr, y= middle, yerr=errors, color=styling["color"][lay], linestyle=styling["linestyle"][lay], label=lay)
 
     plt.grid()
     plt.legend()
     title = "{} comparison for {}".format(benchmark_entity, alg)
     plt.title(title)
-    plt.savefig("plots/{}_{}.png".format(alg, arcs[0].name))
+    plt.savefig("plots/{}_{}.png".format(alg, arcs[0].name), dpi=1500)
     plt.show()
 
 
@@ -153,7 +155,7 @@ if __name__ == "__main__":
     rigetti_arcs = get_rigetti_arcs()
     square_arcs = get_square_grid_arcs(20)
 
-    archs.extend(ibm_archs)
+    archs.extend(rigetti_arcs)
 
     layouts = {"LinePlacement": LinePlacementLayout, "GraphPlacement": GraphPlacementLayout,
                #"BestLayout": BestLayout,
@@ -162,7 +164,7 @@ if __name__ == "__main__":
                "SabreLayout": QiskitSabreLayout}
 
     # Set the parameters
-    algorithm = "dj"
+    algorithm = "vqe"
     max_seed = 10
     entity = "swap"
     calculate_results(layouts.values(), algorithm, archs, max_seed=max_seed)
